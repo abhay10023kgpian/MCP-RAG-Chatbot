@@ -51,40 +51,38 @@ app_state = {
     "mcp_client": None,
     "tools": None,
     "named_tools": None,
+    "is_ready": False,
 }
 
+async def initialize_mcp():
+    """Background task to initialize MCP tools without blocking Uvicorn port binding."""
+    try:
+        print("🔌 Connecting to MCP servers in the background...")
+        client, tools, named_tools = await get_mcp_tools()
+        app_state["mcp_client"] = client
+        app_state["tools"] = tools
+        app_state["named_tools"] = named_tools
+
+        print("🤖 Creating LangGraph chatbot...")
+        chatbot, make_config = await create_chatbot(tools)
+        app_state["chatbot"] = chatbot
+        app_state["make_config"] = make_config
+        app_state["is_ready"] = True
+        print("✅ API ready!")
+    except Exception as e:
+        print(f"❌ Error initializing MCP: {e}", file=sys.stderr)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Lifespan handler — connects to MCP servers on startup,
+    Lifespan handler — spawns MCP connection task on startup,
     cleans up on shutdown.
-    
-    Flow:
-      startup:
-        1. Connect to all MCP servers
-        2. Discover available tools
-        3. Create LangGraph chatbot with tools bound
-      
-      shutdown:
-        1. Close MCP client connections
     """
     print("\n🚀 Starting MCP RAG Chatbot API...")
-
-    # ── Connect to MCP servers ──
-    print("🔌 Connecting to MCP servers...")
-    client, tools, named_tools = await get_mcp_tools()
-    app_state["mcp_client"] = client
-    app_state["tools"] = tools
-    app_state["named_tools"] = named_tools
-
-    # ── Create chatbot ──
-    print("🤖 Creating LangGraph chatbot...")
-    chatbot, make_config = await create_chatbot(tools)
-    app_state["chatbot"] = chatbot
-    app_state["make_config"] = make_config
-
-    print("✅ API ready!\n")
+    
+    # Start initialization in the background so port binding happens instantly
+    init_task = asyncio.create_task(initialize_mcp())
+    
     yield
 
     # ── Cleanup ──
@@ -147,6 +145,9 @@ async def health_check():
     Health check endpoint.
     Returns server status and list of connected tools.
     """
+    if not app_state["is_ready"]:
+        return {"status": "starting up"}
+    
     tool_names = [t.name for t in app_state["tools"]] if app_state["tools"] else []
     return {
         "status": "healthy",
@@ -160,19 +161,15 @@ async def list_tools():
     """
     List all available MCP tools with their descriptions.
     """
-    if not app_state["tools"]:
-        return {"tools": []}
-
+    if not app_state["is_ready"]:
+        raise HTTPException(status_code=503, detail="Server is still initializing. Please wait.")
+        
     return {
         "tools": [
-            {
-                "name": tool.name,
-                "description": tool.description,
-            }
-            for tool in app_state["tools"]
+            {"name": name, "description": desc}
+            for name, desc in app_state["named_tools"].items()
         ]
     }
-
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -243,10 +240,13 @@ async def chat(request: ChatRequest):
 @app.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
     """
-    Streaming chat endpoint.
-    Streams Server-Sent Events (SSE) indicating tool usage and AI tokens.
+    Stream the LLM response chunk by chunk using Server-Sent Events (SSE).
     """
+    if not app_state["is_ready"]:
+        raise HTTPException(status_code=503, detail="Server is still initializing MCP tools. Please wait.")
+        
     chatbot = app_state["chatbot"]
+    make_config = app_state["make_config"]
     if not chatbot:
         raise HTTPException(status_code=503, detail="Chatbot not initialized")
 
