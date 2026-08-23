@@ -72,122 +72,46 @@ async def create_chatbot(tools: list = None):
         temperature=0,
     )
 
-    # ─── Separate Tools ───
-    math_tools = [t for t in tools if t.name.startswith("calculator")] if tools else []
-    rag_tools = [t for t in tools if t.name == "retrieve_from_knowledge_base"] if tools else []
-    
-    math_llm = llm.bind_tools(math_tools) if math_tools else llm
+    # ─── Agent Node ───
+    system_prompt = SystemMessage(content=(
+        "You are a helpful and intelligent assistant. "
+        "You have access to tools for retrieving knowledge and doing math. "
+        "If a user asks a factual question, ALWAYS use the retrieve_from_knowledge_base tool to search for the answer. "
+        "If the tool returns no relevant documents, clearly state that you don't know based on the provided knowledge. "
+        "Do NOT hallucinate facts outside the knowledge base. "
+        "For simple greetings or small talk, respond naturally without calling tools."
+    ))
 
-    # ─── Define Graph Nodes ───
-    async def classifier_node(state: ChatState) -> dict:
-        last_msg = state["messages"][-1].content
-        prompt = f"""Classify this user input into EXACTLY one of these categories:
-- 'greeting': Casual conversation, hellos, thank yous
-- 'math': Requests involving calculations or numbers
-- 'factual': Requests asking for information, facts, general questions, or physics.
+    # Bind tools and add our stream_response tag so the backend streams this LLM's tokens
+    llm_with_tools = llm.bind_tools(tools).with_config({"tags": ["stream_response"]})
 
-Input: "{last_msg}"
-Category:"""
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
-        cat_text = response.content.lower()
-        if "greeting" in cat_text: cat = "greeting"
-        elif "math" in cat_text: cat = "math"
-        else: cat = "factual"
-        return {"category": cat}
-
-    async def greeting_node(state: ChatState) -> dict:
-        msg = AIMessage(content="Hello! I am your strict RAG assistant. How can I help you today?")
-        return {"messages": [msg]}
-
-    async def math_chat_node(state: ChatState) -> dict:
-        response = await math_llm.ainvoke(state["messages"])
+    async def agent_node(state: ChatState) -> dict:
+        messages = [system_prompt] + state["messages"]
+        response = await llm_with_tools.ainvoke(messages)
         return {"messages": [response]}
-
-    async def force_rag_node(state: ChatState) -> dict:
-        last_msg = state["messages"][-1].content
-        tool_call = {
-            "name": "retrieve_from_knowledge_base",
-            "args": {"query": last_msg},
-            "id": "forced_call_1"
-        }
-        msg = AIMessage(content="", tool_calls=[tool_call])
-        return {"messages": [msg]}
-        
-    async def synthesize_node(state: ChatState) -> dict:
-        strict_prompt = SystemMessage(content="Use ONLY the retrieved context. Do not invent facts. If the tool returned {'found': false}, you MUST reply 'I cannot answer this based on the provided documents.'")
-        messages = [strict_prompt] + state["messages"]
-        response = await llm.ainvoke(messages)
-        return {"messages": [response]}
-
-    async def evaluator_node(state: ChatState) -> dict:
-        last_ai_message = state["messages"][-1].content
-        tool_content = ""
-        for msg in reversed(state["messages"]):
-            if isinstance(msg, ToolMessage):
-                tool_content = msg.content
-                break
-                
-        critic_prompt = f"""You are a strict evaluator. 
-Source Documents: {tool_content}
-Generated Answer: {last_ai_message}
-
-Does the Generated Answer contain any specific facts NOT present in the Source Documents? 
-Reply strictly with "YES" or "NO"."""
-        eval_response = await llm.ainvoke([HumanMessage(content=critic_prompt)])
-        
-        if "YES" in eval_response.content.upper():
-            safe_response = AIMessage(content="I apologize, but my generated answer included outside knowledge, so I am withholding it to guarantee accuracy.")
-            safe_response.id = state["messages"][-1].id 
-            return {"messages": [safe_response]}
-            
-        return {"messages": []}
 
     # ─── Routing ───
-    def route_after_classifier(state: ChatState) -> Literal["greeting_node", "math_chat_node", "force_rag_node"]:
-        cat = state.get("category", "factual")
-        if cat == "greeting": return "greeting_node"
-        if cat == "math": return "math_chat_node"
-        return "force_rag_node"
-        
-    def route_after_math_chat(state: ChatState) -> Literal["math_tool_node", "__end__"]:
+    def should_continue(state: ChatState) -> Literal["tools", "__end__"]:
         last_message = state["messages"][-1]
+        # If the LLM decided to call a tool, route to the tool node
         if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-            return "math_tool_node"
+            return "tools"
         return END
 
     # ─── Build the Graph ───
     graph = StateGraph(ChatState)
     
-    graph.add_node("classifier_node", classifier_node)
-    graph.add_node("greeting_node", greeting_node)
-    graph.add_node("math_chat_node", math_chat_node)
-    graph.add_node("force_rag_node", force_rag_node)
-    graph.add_node("synthesize_node", synthesize_node)
-    graph.add_node("evaluator_node", evaluator_node)
-    
-    if math_tools:
-        graph.add_node("math_tool_node", ToolNode(math_tools))
-    if rag_tools:
-        graph.add_node("rag_tool_node", ToolNode(rag_tools))
+    graph.add_node("agent", agent_node)
+    if tools:
+        graph.add_node("tools", ToolNode(tools))
 
-    graph.add_edge(START, "classifier_node")
-    graph.add_conditional_edges("classifier_node", route_after_classifier)
-    graph.add_edge("greeting_node", END)
+    graph.add_edge(START, "agent")
     
-    if math_tools:
-        graph.add_conditional_edges("math_chat_node", route_after_math_chat)
-        graph.add_edge("math_tool_node", "math_chat_node")
+    if tools:
+        graph.add_conditional_edges("agent", should_continue)
+        graph.add_edge("tools", "agent")
     else:
-        graph.add_edge("math_chat_node", END)
-        
-    if rag_tools:
-        graph.add_edge("force_rag_node", "rag_tool_node")
-        graph.add_edge("rag_tool_node", "synthesize_node")
-    else:
-        graph.add_edge("force_rag_node", "synthesize_node")
-        
-    graph.add_edge("synthesize_node", "evaluator_node")
-    graph.add_edge("evaluator_node", END)
+        graph.add_edge("agent", END)
 
     # ─── Compile with Memory ───
     checkpointer = MemorySaver()

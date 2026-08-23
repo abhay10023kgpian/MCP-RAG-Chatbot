@@ -278,9 +278,18 @@ async def chat_stream(request: ChatRequest):
                             pass
 
                 elif kind == "on_chat_model_stream":
-                    chunk = event["data"]["chunk"]
-                    if hasattr(chunk, "content") and chunk.content:
-                        yield f"data: {json.dumps({'type': 'content', 'text': chunk.content})}\n\n"
+                    if "stream_response" in event.get("tags", []):
+                        chunk = event["data"]["chunk"]
+                        if hasattr(chunk, "content") and chunk.content:
+                            yield f"data: {json.dumps({'type': 'content', 'text': chunk.content})}\n\n"
+
+                elif kind == "on_chain_end":
+                    if event.get("name") in ["greeting_node", "evaluator_node"]:
+                        output = event.get("data", {}).get("output", {})
+                        if isinstance(output, dict) and "messages" in output and output["messages"]:
+                            msg = output["messages"][0]
+                            if hasattr(msg, "content") and msg.content:
+                                yield f"data: {json.dumps({'type': 'content', 'text': msg.content})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         except Exception as e:
