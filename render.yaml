@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: mcp-rag-chatbot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python start.py
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: EMBEDDING_MODEL
+        value: models/gemini-embedding-2
+      - key: CHROMA_DIR
+        value: ./chroma_db
+      - key: COLLECTION_NAME
+        value: rag_knowledge_base

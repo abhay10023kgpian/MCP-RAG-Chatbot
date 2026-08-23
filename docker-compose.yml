@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  # ─── Backend: FastAPI + MCP Servers (stdio subprocesses) ───
+  api:
+    build: .
+    container_name: mcp-rag-api
+    command: python start.py
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PORT=8000
+      - API_HOST=0.0.0.0
+    volumes:
+      # Mount storage for live doc updates without rebuild
+      - ./storage:/app/storage
+      # Persist chroma_db across container restarts (unlike Render)
+      - chroma_data:/app/chroma_db
+    restart: unless-stopped
+
+  # ─── Frontend: Streamlit Chat UI ───
+  frontend:
+    build: .
+    container_name: mcp-rag-frontend
+    command: streamlit run frontend/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+    # Named volume persists chroma_db across container restarts

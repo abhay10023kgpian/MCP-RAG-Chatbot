@@ -1,0 +1,3 @@
+models/gemini-embedding-001
+models/gemini-embedding-2-preview
+models/gemini-embedding-2
