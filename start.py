@@ -70,9 +70,6 @@ def start_server():
 
 
 if __name__ == "__main__":
-    # Start the embedding in the background so it doesn't block the server startup
-    import threading
-    threading.Thread(target=run_embedding, daemon=True).start()
-    
-    # Start the server immediately so Render can detect the open port
+    run_embedding()
     start_server()
+
