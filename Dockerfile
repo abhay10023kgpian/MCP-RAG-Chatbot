@@ -12,14 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy project files (includes chroma_db/ baked in from git)
 COPY . .
 
-# Default port (overridden by docker-compose or Render)
-ENV PORT=8000
+# Render sets PORT env var; default to 10000 for Render free tier
+ENV PORT=10000
 
 # Expose API port
 EXPOSE ${PORT}
 
-# Default: run the production startup script (embed + uvicorn)
-CMD ["python", "start.py"]
+# Start uvicorn directly — chroma_db is baked in, no embedding needed
+CMD uvicorn api.server:app --host 0.0.0.0 --port ${PORT}
