@@ -174,6 +174,7 @@ async def list_tools():
     }
 
 
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
