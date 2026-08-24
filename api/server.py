@@ -40,7 +40,8 @@ load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 # Add project root to path for imports
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from client.mcp_client import get_mcp_tools
+from client.rag_tool import retrieve_from_knowledge_base
+from client.math_tools import calculator_add, calculator_multiply
 from client.chatbot import create_chatbot
 
 
@@ -48,20 +49,21 @@ from client.chatbot import create_chatbot
 app_state = {
     "chatbot": None,
     "make_config": None,
-    "mcp_client": None,
     "tools": None,
     "named_tools": None,
     "is_ready": False,
 }
 
-async def initialize_mcp():
-    """Background task to initialize MCP tools without blocking Uvicorn port binding."""
+async def initialize_tools():
+    """Background task to initialize direct tools without blocking Uvicorn port binding."""
     try:
-        print("🔌 Connecting to MCP servers in the background...")
-        client, tools, named_tools = await get_mcp_tools()
-        app_state["mcp_client"] = client
+        print("🔧 Initializing direct tools (no MCP subprocesses)...")
+        tools = [retrieve_from_knowledge_base, calculator_add, calculator_multiply]
+        named_tools = {tool.name: tool for tool in tools}
         app_state["tools"] = tools
         app_state["named_tools"] = named_tools
+
+        print(f"   Tools loaded: {[t.name for t in tools]}")
 
         print("🤖 Creating LangGraph chatbot...")
         chatbot, make_config = await create_chatbot(tools)
@@ -70,7 +72,9 @@ async def initialize_mcp():
         app_state["is_ready"] = True
         print("✅ API ready!")
     except Exception as e:
-        print(f"❌ Error initializing MCP: {e}", file=sys.stderr)
+        import traceback
+        print(f"❌ Error initializing tools: {e}", file=sys.stderr)
+        traceback.print_exc()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -81,7 +85,7 @@ async def lifespan(app: FastAPI):
     print("\n🚀 Starting MCP RAG Chatbot API...")
     
     # Start initialization in the background so port binding happens instantly
-    init_task = asyncio.create_task(initialize_mcp())
+    init_task = asyncio.create_task(initialize_tools())
     
     yield
 
@@ -166,8 +170,8 @@ async def list_tools():
         
     return {
         "tools": [
-            {"name": name, "description": desc}
-            for name, desc in app_state["named_tools"].items()
+            {"name": tool.name, "description": tool.description[:80]}
+            for tool in app_state["tools"]
         ]
     }
 

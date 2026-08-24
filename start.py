@@ -27,17 +27,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 def run_embedding():
     """
-    Run the embedding pipeline if ChromaDB doesn't exist.
-    On Render, ephemeral disk means we need to rebuild on every deploy/restart.
+    Run the embedding pipeline ONLY if ChromaDB doesn't exist.
+    Pre-embedded chroma_db/ is committed to git and shipped with the code.
+    Only re-embeds as a fallback if chroma_db/ is completely missing.
     """
     chroma_dir = Path(os.getenv("CHROMA_DIR", str(PROJECT_ROOT / "chroma_db")))
     
-    # Check if ChromaDB already exists (e.g., still warm from last request)
     if chroma_dir.exists() and (chroma_dir / "chroma.sqlite3").exists():
-        print("[start.py] ChromaDB found, skipping re-embedding.")
+        print("[start.py] Pre-embedded ChromaDB found — using existing vectors.")
         return
 
-    print("[start.py] ChromaDB not found — running embedding pipeline...")
+    print("[start.py] ChromaDB not found — running embedding pipeline as fallback...")
     result = subprocess.run(
         [sys.executable, str(PROJECT_ROOT / "embed_documents.py")],
         cwd=str(PROJECT_ROOT),
