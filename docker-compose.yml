@@ -33,6 +33,22 @@ services:
       - api
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   chroma_data:
     # Named volume persists chroma_db across container restarts
+  redis_data:
+    # Named volume persists Redis data across container restarts
