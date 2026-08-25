@@ -33,6 +33,7 @@ RAG_SERVER_PATH = str(PROJECT_ROOT / "server" / "rag_server.py")
 MATH_SERVER_PATH = str(PROJECT_ROOT / "server" / "math_server.py")
 
 
+
 def get_mcp_server_config() -> dict:
     """
     Returns the MCP server configuration dictionary.
