@@ -31,6 +31,7 @@ load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
 PYTHON_EXE = sys.executable
 RAG_SERVER_PATH = str(PROJECT_ROOT / "server" / "rag_server.py")
 MATH_SERVER_PATH = str(PROJECT_ROOT / "server" / "math_server.py")
+GITHUB_SERVER_PATH = str(PROJECT_ROOT / "server" / "github_issues_server.py")
 
 
 
@@ -64,6 +65,12 @@ def get_mcp_server_config() -> dict:
             "transport": "stdio",
             "command": PYTHON_EXE,
             "args": [MATH_SERVER_PATH],
+            "env": env
+        },
+        "github_issues_connector": {
+            "transport": "stdio",
+            "command": PYTHON_EXE,
+            "args": [GITHUB_SERVER_PATH],
             "env": env
         }
     }

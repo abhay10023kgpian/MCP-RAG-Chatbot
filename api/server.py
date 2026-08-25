@@ -43,7 +43,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from client.rag_tool import retrieve_from_knowledge_base
 from client.math_tools import calculator_add, calculator_multiply
 from client.chatbot import create_chatbot
-
+from client.github_connector_tool import github_post_issues
 
 # ─── Application State (populated on startup) ───
 app_state = {
@@ -58,7 +58,7 @@ async def initialize_tools():
     """Background task to initialize direct tools without blocking Uvicorn port binding."""
     try:
         print("🔧 Initializing direct tools (no MCP subprocesses)...")
-        tools = [retrieve_from_knowledge_base, calculator_add, calculator_multiply]
+        tools = [retrieve_from_knowledge_base, calculator_add, calculator_multiply, github_post_issues]
         named_tools = {tool.name: tool for tool in tools}
         app_state["tools"] = tools
         app_state["named_tools"] = named_tools
