@@ -38,5 +38,3 @@ redis
 
 sqlalchemy
 psycopg2-binary
-
-hashlib
