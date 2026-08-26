@@ -19,6 +19,10 @@ async def github_post_issues(title : str, body : str) -> dict:
     """
     use this tool when user ask to raise a issue on github
     do not ask for owner and repo
+    owner : abhay10023kgpian
+    repo : testing_github_connector
+
+    after issue creation show url to see the created issue
 
     Args:
         title (str): Title of the issue
@@ -27,6 +31,7 @@ async def github_post_issues(title : str, body : str) -> dict:
 
     return: 
     status (int): "status code"
+    message (str): "message"
 
     """
 
@@ -41,6 +46,7 @@ async def github_post_issues(title : str, body : str) -> dict:
     if cached:
         return {
             "status" : 208,
+            "message" : "issue already exists"
         }
 
     url = f"https://api.github.com/repos/{owner}/{repo}/issues"
@@ -55,21 +61,31 @@ async def github_post_issues(title : str, body : str) -> dict:
         "body" : body,
     }
 
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.post(url, headers=headers, json=issue)
-        
-        r.set(f"idempotency:{idempotency}", json.dumps(response.json()), ex=3600)  # must serialize dict → JSON string
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, headers=headers, json=issue)
+            
+            if response.status_code == 201:
+                r.set(f"idempotency:{idempotency}", json.dumps(response.json()), ex=3600)
+            
+            return {
+                "status" : response.status_code,
+                "message" : "issue created successfully"
+            }
+    except httpx.RequestError as exc:
+        print(f"An error occurred while requesting {exc.request.url!r}: {exc}")
         return {
-            "status" : response.status_code,
+            "status" : 500,
+            "message" : "issue creation failed, check you internet connection"
         }
-
-
-    return{
-        "status" : 500
-    }
+    except Exception as exc:
+        print(f"An unexpected error occurred: {exc}")
+        return {
+            "status" : 500,
+            "message" : "issue creation failed, internal error on from github"
+        }
 
 
 if __name__ == "__main__":
     import asyncio
-    print(asyncio.run(github_post_issues.ainvoke({"title": "Testing 9", "body": "This is a test issue."})))
+    print(asyncio.run(github_post_issues.ainvoke({"title": "Testing 10", "body": "This is a test issue."})))
