@@ -46,9 +46,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+  postgres:
+    image: postgres:16
+    container_name: mcp-rag-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secret}
+      - POSTGRES_DB=${POSTGRES_DB:-chatbot}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   chroma_data:
     # Named volume persists chroma_db across container restarts
   redis_data:
     # Named volume persists Redis data across container restarts
+  postgres_data:
+    # Named volume persists Postgres data across container restarts

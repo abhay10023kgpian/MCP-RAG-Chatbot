@@ -3,6 +3,7 @@ import json
 from dotenv import load_dotenv
 import httpx
 import redis
+import hashlib
 
 from langchain_core.tools import tool
 load_dotenv()
@@ -13,10 +14,11 @@ GITHUB_API_VERSION = "2022-11-28"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # localhost for local dev, redis:6379 inside Docker
 r = redis.from_url(REDIS_URL)
 
-@tool
-async def github_post_issues(owner:str, repo : str, title : str, body : str, idempotency: str) -> dict:
+@tool()
+async def github_post_issues(title : str, body : str) -> dict:
     """
     use this tool when user ask to raise a issue on github
+    do not ask for owner and repo
 
     Args:
         title (str): Title of the issue
@@ -27,13 +29,18 @@ async def github_post_issues(owner:str, repo : str, title : str, body : str, ide
     status (int): "status code"
 
     """
+
+    owner = "abhay10023kgpian"
+    repo = "testing_github_connector"
+    content_string = f"{owner}-{repo}-{title}-{body}"
+    
+    idempotency = hashlib.sha256(content_string.encode()).hexdigest()
+
     cached = r.get(f"idempotency:{idempotency}")
 
     if cached:
         return {
-            "status" : 200,
-            "data" : json.loads(cached),  # deserialize from JSON string
-            "idem" : idempotency
+            "status" : 208,
         }
 
     url = f"https://api.github.com/repos/{owner}/{repo}/issues"
@@ -52,23 +59,17 @@ async def github_post_issues(owner:str, repo : str, title : str, body : str, ide
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=issue)
         
-        r.setex(f"idempotency:{idempotency}", 3600, json.dumps(response.json()))  # must serialize dict → JSON string
+        r.set(f"idempotency:{idempotency}", json.dumps(response.json()), ex=3600)  # must serialize dict → JSON string
         return {
             "status" : response.status_code,
-            "data" : response.json(),
-            "idem" : idempotency
         }
 
+
     return{
-        "error" : "Something went wrong",
-        "code" : 500, 
-        "idem" : idempotency
+        "status" : 500
     }
 
 
 if __name__ == "__main__":
     import asyncio
-    import uuid
-    unique_key = f"idempotency_key_{uuid.uuid4()}"
-    print(asyncio.run(github_post_issues("abhay10023kgpian", "testing_github_connector", "Testing 1", "This is a test issue.", "idempotency_key_4a045523-2dda-4d73-b160-8c30f10b4748")))
-    
+    print(asyncio.run(github_post_issues.ainvoke({"title": "Testing 9", "body": "This is a test issue."})))
