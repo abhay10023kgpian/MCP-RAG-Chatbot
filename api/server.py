@@ -49,6 +49,7 @@ from client.github_connector_tool import github_post_issues
 app_state = {
     "chatbot": None,
     "make_config": None,
+    "reset_thread": None,
     "tools": None,
     "named_tools": None,
     "is_ready": False,
@@ -66,9 +67,10 @@ async def initialize_tools():
         print(f"   Tools loaded: {[t.name for t in tools]}")
 
         print("🤖 Creating LangGraph chatbot...")
-        chatbot, make_config = await create_chatbot(tools)
+        chatbot, make_config, reset_thread = await create_chatbot(tools)
         app_state["chatbot"] = chatbot
         app_state["make_config"] = make_config
+        app_state["reset_thread"] = reset_thread
         app_state["is_ready"] = True
         print("✅ API ready!")
     except Exception as e:
@@ -300,6 +302,28 @@ async def chat_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+class ResetRequest(BaseModel):
+    """Request to reset/clear a conversation thread."""
+    thread_id: str
+
+
+@app.post("/chat/reset")
+async def reset_chat(request: ResetRequest):
+    """
+    Reset a conversation thread.
+    Clears the summarization cache for the given thread_id.
+    """
+    if not app_state["is_ready"]:
+        raise HTTPException(status_code=503, detail="Server is still initializing.")
+
+    reset_fn = app_state["reset_thread"]
+    if reset_fn:
+        reset_fn(request.thread_id)
+
+    return {"status": "ok", "message": f"Thread '{request.thread_id}' memory cleared."}
+
 
 
 if __name__ == "__main__":
