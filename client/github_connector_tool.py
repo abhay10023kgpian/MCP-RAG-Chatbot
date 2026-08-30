@@ -44,9 +44,11 @@ async def github_post_issues(title : str, body : str) -> dict:
     cached = r.get(f"idempotency:{idempotency}")
 
     if cached:
+        cached_data = json.loads(cached)
         return {
             "status" : 208,
-            "message" : "issue already exists"
+            "message" : "issue already exists",
+            "url": cached_data.get("html_url", "")
         }
 
     url = f"https://api.github.com/repos/{owner}/{repo}/issues"
@@ -66,11 +68,17 @@ async def github_post_issues(title : str, body : str) -> dict:
             response = await client.post(url, headers=headers, json=issue)
             
             if response.status_code == 201:
-                r.set(f"idempotency:{idempotency}", json.dumps(response.json()), ex=3600)
+                data = response.json()
+                r.set(f"idempotency:{idempotency}", json.dumps(data), ex=3600)
+                return {
+                    "status": response.status_code,
+                    "message": "issue created successfully",
+                    "url": data.get("html_url", "")
+                }
             
             return {
                 "status" : response.status_code,
-                "message" : "issue created successfully"
+                "message" : f"issue creation failed: {response.text}"
             }
     except httpx.RequestError as exc:
         print(f"An error occurred while requesting {exc.request.url!r}: {exc}")
