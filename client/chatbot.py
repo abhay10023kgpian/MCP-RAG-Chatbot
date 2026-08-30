@@ -43,6 +43,8 @@ from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
 
+from client.memory import trim_and_summarize, clear_summary
+
 # ─── Load .env from project root ───
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
@@ -72,6 +74,9 @@ async def create_chatbot(tools: list = None):
         temperature=0,
     )
 
+    # Keep a reference to the raw LLM for summarization (without tools bound)
+    summarizer_llm = llm
+
     # ─── Agent Node ───
     system_prompt = SystemMessage(content=(
         "You are a knowledgeable assistant grounded in a specific knowledge base.\n\n"
@@ -93,8 +98,18 @@ async def create_chatbot(tools: list = None):
     # Bind tools and add our stream_response tag so the backend streams this LLM's tokens
     llm_with_tools = llm.bind_tools(tools).with_config({"tags": ["stream_response"]})
 
-    async def agent_node(state: ChatState) -> dict:
-        messages = [system_prompt] + state["messages"]
+    async def agent_node(state: ChatState, config: dict = None) -> dict:
+        # Extract thread_id for per-session summarization
+        thread_id = "default"
+        if config and "configurable" in config:
+            thread_id = config["configurable"].get("thread_id", "default")
+
+        # Apply sliding-window summarization to prevent token bloat
+        trimmed = await trim_and_summarize(
+            state["messages"], thread_id, summarizer_llm
+        )
+
+        messages = [system_prompt] + trimmed
         response = await llm_with_tools.ainvoke(messages)
         return {"messages": [response]}
 
@@ -128,7 +143,11 @@ async def create_chatbot(tools: list = None):
     def make_config(thread_id: str = "default") -> dict:
         return {"configurable": {"thread_id": thread_id}}
 
-    return compiled, make_config
+    def reset_thread(thread_id: str) -> None:
+        """Clear summarization cache for a thread."""
+        clear_summary(thread_id)
+
+    return compiled, make_config, reset_thread
 
 
 async def run_interactive():
@@ -149,7 +168,7 @@ async def run_interactive():
 
     # ─── Create chatbot ───
     print("🤖 Creating chatbot...")
-    chatbot, make_config = await create_chatbot(tools)
+    chatbot, make_config, reset_thread = await create_chatbot(tools)
     config = make_config("interactive-session")
 
     print("\n✅ Ready! Type your questions (type 'quit' to exit)\n")

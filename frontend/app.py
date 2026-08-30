@@ -26,7 +26,6 @@ import streamlit as st
 
 # ─── Configuration ───
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
-THREAD_ID = "streamlit-session"
 
 # ─── Page Config ───
 st.set_page_config(
@@ -84,6 +83,29 @@ try:
 except requests.exceptions.ConnectionError:
     st.sidebar.error("❌ API not running. Start with:\n```\nuvicorn api.server:app --port 8000\n```")
     tool_names = []
+
+# ─── Per-User Session ID ───
+# Each browser tab gets a unique session — no cross-user memory leakage
+if "session_id" not in st.session_state:
+    st.session_state["session_id"] = str(uuid.uuid4())
+
+# ─── New Chat Button ───
+st.sidebar.markdown("---")
+if st.sidebar.button("🔄 New Chat", use_container_width=True):
+    old_session = st.session_state["session_id"]
+    # Clear backend memory for this session
+    try:
+        requests.post(
+            f"{API_URL}/chat/reset",
+            json={"thread_id": old_session},
+            timeout=3,
+        )
+    except Exception:
+        pass  # Best-effort cleanup
+    # Generate fresh session
+    st.session_state["session_id"] = str(uuid.uuid4())
+    st.session_state["message_history"] = []
+    st.rerun()
 
 # ─── Sidebar Info ───
 st.sidebar.markdown("---")
@@ -157,7 +179,7 @@ if user_input:
                 f"{API_URL}/chat/stream",
                 json={
                     "query": user_input,
-                    "thread_id": THREAD_ID,
+                    "thread_id": st.session_state["session_id"],
                 },
                 stream=True,
                 timeout=60,
